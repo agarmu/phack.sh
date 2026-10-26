@@ -186,7 +186,7 @@ def test-external-configuration-paths [base: path] {
     )
     (assert-contains
         $build
-        'BuildArg=CMS_WEB_CONFIG_FILE=frontend-public.toml'
+        'BuildArg="CMS_WEB_CONFIG_FILE=frontend-public.toml"'
         'Use supplied frontend config filename'
     )
     assert-absent ($fixture.data | path join cms-api) 'Do not copy externally managed configuration'

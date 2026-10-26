@@ -5,7 +5,7 @@ const PLACEHOLDER = '\{\{\s*([^{}\r\n]+?)\s*\}\}'
 const UNIT_PLACEHOLDER = '@([A-Z_]+)@'
 
 def source-path [value: path] {
-    let expanded = $value | path expand
+    let expanded = $value | path expand --no-symlink
     if $expanded =~ '[:\r\n\x00"\\]' {
         error make {
             msg: 'Paths must not contain colons, quotes, backslashes, or line breaks'
