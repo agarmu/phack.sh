@@ -24,7 +24,12 @@ def setup-case [base: path] {
     for name in [quadlets postgres config] { cp -r ($ROOT | path join $name) $repo }
     mkdir ($repo | path join scripts)
     cp ($ROOT | path join scripts install.nu) ($repo | path join scripts install.nu)
-    for name in [cms-api/config.toml cms-api/secrets.toml cms-web/config.toml] {
+    for name in [
+        cms-api/config.toml
+        cms-api/secrets.toml
+        cms-web/config.toml
+        miniflux/miniflux.conf
+    ] {
         let path = $repo | path join config $name
         open --raw $path
         | str replace --all --regex '\{\{\s*([^{}\r\n]+?)\s*\}\}' 'test-value'
@@ -35,6 +40,7 @@ def setup-case [base: path] {
     for name in [postgres-password demo-postgres-password] {
         'test-value' | save --raw ($postgres | path join $name)
     }
+    'test-value' | save --raw ($repo | path join config miniflux postgres-password)
     let home = $base | path join home
     let bin = $base | path join bin
     mkdir $home $bin
@@ -81,6 +87,9 @@ def test-direct-checkout-paths [base: path] {
         config/caddy/Caddyfile
         postgres/init.sql
         postgres/cms.sql
+        postgres/miniflux.sql
+        config/miniflux/Caddyfile
+        config/miniflux/miniflux.conf
         postgres/healthcheck.sh
     ]
     let before = $sources | each {|name| open --raw ($fixture.repo | path join $name) | hash sha256 }
@@ -151,6 +160,8 @@ def test-external-configuration-paths [base: path] {
         [cms-web/config.toml, frontend-public.toml]
         [cms-postgres/postgres-password, main-password]
         [cms-postgres/demo-postgres-password, demo-password]
+        [miniflux/miniflux.conf, miniflux.conf]
+        [miniflux/postgres-password, miniflux-password]
     ]
     for pair in $pairs { cp ($fixture.repo | path join config $pair.0) ($managed | path join $pair.1) }
     '{{not_configured}}' | save --force --raw ($fixture.repo | path join config cms-api config.toml)
@@ -159,7 +170,9 @@ def test-external-configuration-paths [base: path] {
         '--api-secrets' ($managed | path join api-secrets.toml)
         '--web-config' ($managed | path join frontend-public.toml)
         '--postgres-password' ($managed | path join main-password)
-        '--demo-postgres-password' ($managed | path join demo-password))
+        '--demo-postgres-password' ($managed | path join demo-password)
+        '--miniflux-config' ($managed | path join miniflux.conf)
+        '--miniflux-postgres-password' ($managed | path join miniflux-password))
     assert-equal $result.exit_code 0 $result.stderr
     let units = $fixture.user_config | path join containers systemd
     let api = open --raw ($units | path join cms.container)
@@ -246,6 +259,49 @@ def test-invalid-password [base: path] {
     assert-no-installation $fixture
 }
 
+def test-miniflux-configuration [base: path] {
+    let fixture = setup-case $base
+    let config = $fixture.repo | path join config miniflux miniflux.conf
+    let password = $fixture.repo | path join config miniflux postgres-password
+    let original = open --raw $config
+    $original | str replace 'miniflux:test-value@' 'miniflux:test%21value@' | save --force --raw $config
+    'test!value' | save --force --raw $password
+    let result = run-installer $fixture
+    assert-equal $result.exit_code 0 $result.stderr
+}
+
+def test-invalid-miniflux-configuration [base: path] {
+    let fixture = setup-case $base
+    let config = $fixture.repo | path join config miniflux miniflux.conf
+    let original = open --raw $config
+    for value in [
+        (
+            $original
+            | str replace 'miniflux:test-value@' 'miniflux:wrong-password@'
+        )
+        ($original | str replace 'DATABASE_URL=' 'MISSING_DATABASE_URL=')
+        (
+            $original
+            | str replace 'ADMIN_PASSWORD=test-value' 'ADMIN_PASSWORD={{missing}}'
+        )
+        'DATABASE_URL=http://[sensitive-example-value'
+    ] {
+        $value | save --force --raw $config
+        let result = run-installer $fixture
+        (assert-equal
+            ($result.exit_code != 0)
+            true
+            'Invalid Miniflux configuration should fail'
+        )
+        (assert-equal
+            ($result.stderr | str contains 'sensitive-example-value')
+            false
+            'Do not expose configuration in errors'
+        )
+        assert-no-installation $fixture
+    }
+}
+
 def test-shadowing-static-unit [base: path] {
     let fixture = setup-case $base
     let unit = $fixture.user_config | path join systemd user cms-web-build.service
@@ -293,6 +349,8 @@ def test-installer [] {
         {|base| test-invalid-password $base }
         {|base| test-shadowing-static-unit $base }
         {|base| test-secret-parse-error-is-private $base }
+        {|base| test-miniflux-configuration $base }
+        {|base| test-invalid-miniflux-configuration $base }
     ]
     for test in $cases {
         let base = ^mktemp -d | str trim | path expand
@@ -378,6 +436,8 @@ def test-postgres [] {
         let demo_file = $base | path join 'cms-demo-postgres-password'
         $main_password | save --force $main_file
         $demo_password | save --force $demo_file
+        let miniflux_file = $base | path join 'miniflux-postgres-password'
+        $main_password | save --force $miniflux_file
         let port = port | into string
 
         (run_checked
@@ -423,6 +483,8 @@ def test-postgres [] {
                 ($ROOT | path join 'postgres/init.sql')
                 '-f'
                 ($ROOT | path join 'postgres/cms.sql')
+                '-f'
+                ($ROOT | path join 'postgres/miniflux.sql')
             ) | ignore
         }
         do $initialize
@@ -430,15 +492,17 @@ def test-postgres [] {
         for pair in [
             ['cms', $main_password]
             ['cms_demo', $demo_password]
+            ['miniflux', $main_password]
         ] {
             let role = $pair.0
             let password = $pair.1
             let own = (connect $psql $base $port $role $role $password)
             require ($own.exit_code == 0) $'($role) could not connect to its database: ($own.stderr)'
-            let other = if $role == 'cms' { 'cms_demo' } else { 'cms' }
-            let denied = (connect $psql $base $port $role $other $password)
-            require ($denied.exit_code != 0) $'($role) unexpectedly connected to ($other)'
-            require ($denied.stderr | str contains 'permission denied') $'connection to ($other) failed for an unexpected reason: ($denied.stderr)'
+            for other in ([cms cms_demo miniflux] | where {|name| $name != $role }) {
+                let denied = (connect $psql $base $port $role $other $password)
+                require ($denied.exit_code != 0) $'($role) unexpectedly connected to ($other)'
+                require ($denied.stderr | str contains 'permission denied') $'connection to ($other) failed for an unexpected reason: ($denied.stderr)'
+            }
         }
         require (
             (
@@ -446,9 +510,9 @@ def test-postgres [] {
                     $psql
                     $base
                     $port
-                    "SELECT count(*) FROM pg_roles WHERE rolname IN ('cms', 'cms_demo') AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole"
+                    "SELECT count(*) FROM pg_roles WHERE rolname IN ('cms', 'cms_demo', 'miniflux') AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole"
                 )
-            ) == '2'
+            ) == '3'
         ) 'application roles have unexpected privileges'
 
         sql $psql $base $port "CREATE TABLE keep_me (value text); INSERT INTO keep_me VALUES ('preserved')" --database 'cms' | ignore
@@ -463,6 +527,25 @@ def test-postgres [] {
             (connect $psql $base $port 'cms_demo' 'cms_demo' $demo_password).exit_code == 0
         ) 'demo role failed after provisioning reruns'
         require ((connect $psql $base $port 'cms' 'cms' $main_password).exit_code == 0) 'main role failed after provisioning reruns'
+
+        sql $psql $base $port "CREATE TABLE keep_me (value text); INSERT INTO keep_me VALUES ('preserved')" --database 'miniflux' | ignore
+        'different-password' | save --force $miniflux_file
+        do $initialize
+        require (
+            ((connect
+                $psql
+                $base
+                $port
+                'miniflux'
+                'miniflux'
+                $main_password
+            )).exit_code == 0
+        ) 'reinitialization rotated the Miniflux password'
+        require (
+            (
+                sql $psql $base $port 'SELECT value FROM keep_me' --database 'miniflux'
+            ) == 'preserved'
+        ) 'reinitialization lost Miniflux data'
 
         'different-password' | save --force $demo_file
         do $initialize

@@ -15,9 +15,11 @@ Environment="POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=trust"
 Environment=POSTGRES_HOST_AUTH_METHOD=scram-sha-256
 Volume=cms-postgres-data.volume:/var/lib/postgresql:U
 Volume=@POSTGRES_PASSWORD@:/run/cms-postgres-password:ro,Z
+Volume=@MINIFLUX_POSTGRES_PASSWORD@:/run/miniflux-postgres-password:ro,Z
 Volume=@DEMO_POSTGRES_PASSWORD@:/run/cms-demo-postgres-password:ro,Z
 Volume=@REPO_ROOT@/postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro,Z
 Volume=@REPO_ROOT@/postgres/cms.sql:/docker-entrypoint-initdb.d/10-cms.sql:ro,Z
+Volume=@REPO_ROOT@/postgres/miniflux.sql:/docker-entrypoint-initdb.d/20-miniflux.sql:ro,Z
 Volume=@REPO_ROOT@/postgres/healthcheck.sh:/usr/local/bin/postgres-healthcheck.sh:ro,Z
 HealthCmd=bash /usr/local/bin/postgres-healthcheck.sh
 HealthInterval=5s

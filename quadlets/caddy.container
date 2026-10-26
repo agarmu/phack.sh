@@ -14,6 +14,7 @@ Environment=XDG_CONFIG_HOME=/tmp/config
 Environment=XDG_DATA_HOME=/tmp/data
 Volume=@REPO_ROOT@/config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro,Z
 Volume=@REPO_ROOT@/config/cms-web/Caddyfile:/etc/caddy/cms-web.Caddyfile:ro,Z
+Volume=@REPO_ROOT@/config/miniflux/Caddyfile:/etc/caddy/miniflux.Caddyfile:ro,Z
 Mount=type=image,source=localhost/cms-web:main,destination=/srv/cms-web,rw=false
 Volume=%h/.local/share/podman-stack/caddy/sockets:/sockets:z
 NoNewPrivileges=true

@@ -50,7 +50,7 @@ def validate-password [source: path, expected] {
     }
     if ($expected | describe) != 'string' or $value != $expected {
         error make {
-            msg: $"Password file must match its CMS API database password: ($source)"
+            msg: $"Password file must match its application database password: ($source)"
         }
     }
 }
@@ -79,7 +79,14 @@ def install-unit [destination: path, content: string] {
 }
 
 def check-static-services [user_config: path] {
-    for name in [cms cms-web-build cms-postgres caddy podman-stack-pod] {
+    for name in [
+        cms
+        cms-web-build
+        cms-postgres
+        caddy
+        miniflux
+        podman-stack-pod
+    ] {
         let unit = $user_config | path join systemd user $"($name).service"
         if ($unit | path exists) {
             error make {msg: $"Static ($name).service shadows Quadlet: ($unit)"}
@@ -93,6 +100,8 @@ def main [
     --web-config: path
     --postgres-password: path
     --demo-postgres-password: path
+    --miniflux-config: path
+    --miniflux-postgres-password: path
 ] {
     let api = source-path ($api_config | default ($ROOT | path join config cms-api config.toml))
     let secrets = source-path ($api_secrets | default ($ROOT | path join config cms-api secrets.toml))
@@ -105,6 +114,10 @@ def main [
         $demo_postgres_password
         | default ($ROOT | path join config cms-postgres demo-postgres-password)
     )
+    let miniflux = source-path ($miniflux_config | default ($ROOT | path join config miniflux miniflux.conf))
+    let miniflux_password = source-path (
+        $miniflux_postgres_password | default ($ROOT | path join config miniflux postgres-password)
+    )
     let root = source-path $ROOT
     let user_config = if ($env.XDG_CONFIG_HOME? | default '' | is-empty) {
         $env.HOME | path join .config
@@ -115,14 +128,30 @@ def main [
     let credentials = read-toml $secrets
     validate-password $postgres ($credentials.database?.password? | default null)
     validate-password $demo ($credentials.demo?.database?.password? | default null)
+    let miniflux_settings = read-setting $miniflux
+    let database_password = try {
+        $miniflux_settings
+        | lines
+        | parse --regex '^DATABASE_URL=(.*)$'
+        | get capture0
+        | last
+        | url parse
+        | get password
+        | url decode
+    } catch {
+        error make {msg: $"Invalid or missing DATABASE_URL in ($miniflux)"}
+    }
+    validate-password $miniflux_password $database_password
     check-static-services $user_config
     for name in [
         config/caddy/Caddyfile
+        config/miniflux/Caddyfile
         config/cms-web/Caddyfile
         config/cms-web/Containerfile
         config/cms-web/.containerignore
         postgres/init.sql
         postgres/cms.sql
+        postgres/miniflux.sql
         postgres/healthcheck.sh
     ] {
         if not ($ROOT | path join $name | path exists) {
@@ -138,6 +167,8 @@ def main [
         WEB_CONFIG_FILE: ($web | path basename)
         POSTGRES_PASSWORD: $postgres
         DEMO_POSTGRES_PASSWORD: $demo
+        MINIFLUX_CONFIG: $miniflux
+        MINIFLUX_POSTGRES_PASSWORD: $miniflux_password
     }
     | items {|key, value| {key: $key, value: ($value | str replace --all '%' '%%')} }
     | transpose --header-row --as-record

@@ -1,0 +1,4 @@
+http:// {
+	bind "unix//sockets/miniflux.sock|0660"
+	reverse_proxy 127.0.0.1:5000
+}

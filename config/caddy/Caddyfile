@@ -11,3 +11,4 @@ http:// {
 }
 
 import cms-web.Caddyfile
+import miniflux.Caddyfile

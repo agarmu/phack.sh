@@ -1,0 +1,28 @@
+[Unit]
+Description=Miniflux feed reader
+Requires=cms-postgres.service
+After=cms-postgres.service
+
+[Container]
+Image=ghcr.io/miniflux/miniflux:latest
+AutoUpdate=registry
+ContainerName=miniflux
+Pod=podman-stack.pod
+User=1000
+Group=1000
+Entrypoint=/usr/bin/miniflux
+Exec=-config-file /etc/miniflux.conf
+Volume=@MINIFLUX_CONFIG@:/etc/miniflux.conf:ro,Z
+HealthCmd=/usr/bin/miniflux -config-file /etc/miniflux.conf -healthcheck auto
+HealthInterval=30s
+HealthTimeout=5s
+HealthStartPeriod=30s
+Notify=healthy
+NoNewPrivileges=true
+LogDriver=journald
+
+[Service]
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=900
+TimeoutStopSec=90
