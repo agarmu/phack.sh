@@ -1,63 +1,15 @@
 #!/usr/bin/env nu
 
-const ROOT = path self | path dirname | path dirname
-const PLACEHOLDER = '\{\{\s*([^{}\r\n]+?)\s*\}\}'
+use _lib.nu [
+    ROOT
+    source-path
+    read-setting
+    read-toml
+    validate-password
+    check-command
+]
+
 const UNIT_PLACEHOLDER = '@([A-Z_]+)@'
-
-def source-path [value: path] {
-    let expanded = $value | path expand --no-symlink
-    if $expanded =~ '[:\r\n\x00"\\]' {
-        error make {
-            msg: 'Paths must not contain colons, quotes, backslashes, or line breaks'
-        }
-    }
-    $expanded
-}
-
-def read-setting [source: path] {
-    if not ($source | path exists) {
-        error make {msg: $"Configuration file does not exist: ($source)"}
-    }
-    let content = open --raw $source
-    let missing = $content | parse --regex $PLACEHOLDER
-    if not ($missing | is-empty) {
-        let name = $missing.0.capture0 | str trim
-        error make {
-            msg: $"Unresolved placeholder: ($name) in ($source); supply a rendered file"
-        }
-    }
-    $content
-}
-
-def read-toml [source: path] {
-    let content = read-setting $source
-    let parsed = try {
-        let parsed = $content | from toml
-        $parsed
-    } catch {
-        null
-    }
-    if $parsed == null {
-        error make {msg: $"Invalid TOML in ($source)"}
-    }
-    $parsed
-}
-
-def validate-password [source: path, expected] {
-    let value = read-setting $source
-    if ($value | is-empty) or ($value =~ '[\r\n\x00]') {
-        error make {msg: $"Password file must be nonempty with no line breaks: ($source)"}
-    }
-    if ($expected | describe) != 'string' or $value != $expected {
-        error make {
-            msg: $"Password file must match its application database password: ($source)"
-        }
-    }
-}
-
-def check-command [exit_code: int, message: string] {
-    if $exit_code != 0 { error make {msg: $message} }
-}
 
 def install-unit [destination: path, content: string] {
     let parent = $destination | path dirname
