@@ -13,11 +13,14 @@ export def source-path [value: path] {
     $expanded
 }
 
-export def read-setting [source: path] {
+export def read-setting [source: path, --replacements: record = {}] {
     if not ($source | path exists) {
         error make {msg: $"Configuration file does not exist: ($source)"}
     }
     let content = open --raw $source
+    | str replace --all --regex $PLACEHOLDER {|name|
+        $replacements | get --optional ($name | str trim) | default $"{{($name)}}"
+    }
     let missing = $content | parse --regex $PLACEHOLDER
     if not ($missing | is-empty) {
         let name = $missing.0.capture0 | str trim
@@ -28,8 +31,8 @@ export def read-setting [source: path] {
     $content
 }
 
-export def read-toml [source: path] {
-    let content = read-setting $source
+export def read-toml [source: path, --replacements: record = {}] {
+    let content = read-setting $source --replacements $replacements
     let parsed = try {
         let parsed = $content | from toml
         $parsed

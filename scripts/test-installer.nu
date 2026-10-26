@@ -6,7 +6,7 @@ def setup-case [base: path] {
     mkdir $repo
     for name in [quadlets postgres config] { cp -r ($ROOT | path join $name) $repo }
     mkdir ($repo | path join scripts)
-    for name in [install.nu _lib.nu] {
+    for name in [install.nu _lib.nu _credentials.nu] {
         cp ($ROOT | path join scripts $name) ($repo | path join scripts $name)
     }
     for name in [
@@ -237,9 +237,9 @@ def test-invalid-password [base: path] {
     }
     rm $file
     (assert-equal
-        ((run-installer $fixture).exit_code != 0)
+        ((run-installer $fixture '--demo-postgres-password' ($file | into string)).exit_code != 0)
         true
-        'Missing password file should fail'
+        'Missing explicitly supplied password file should fail'
     )
     assert-no-installation $fixture
 }
@@ -324,6 +324,101 @@ def test-secret-parse-error-is-private [base: path] {
     assert-no-installation $fixture
 }
 
+def file-mode [path: path] {
+    let result = do -i { ^stat -c '%a' $path } | complete
+    if $result.exit_code == 0 { $result.stdout } else { ^stat -f '%Lp' $path }
+}
+
+def test-generated-passwords [base: path] {
+    let fixture = setup-case $base
+    let secrets = $fixture.repo | path join config cms-api secrets.toml
+    let miniflux = $fixture.repo | path join config miniflux miniflux.conf
+    let original = open --raw $secrets | from toml
+    $original
+    | upsert database.password '{{main_database_password}}'
+    | upsert demo.database.password '{{demo_database_password}}'
+    | to toml
+    | save --force $secrets
+    open --raw $miniflux
+    | str replace 'miniflux:test-value@' 'miniflux:{{miniflux_database_password_urlencoded}}@'
+    | save --force $miniflux
+    for file in [
+        cms-postgres/postgres-password
+        cms-postgres/demo-postgres-password
+        miniflux/postgres-password
+    ] {
+        rm ($fixture.repo | path join config $file)
+    }
+    let inputs = [$secrets $miniflux] | each {|file| open --raw $file }
+    let result = run-installer $fixture
+    assert-equal $result.exit_code 0 $result.stderr
+    let managed = $fixture.user_config | path join podman-stack credentials
+    for file in [
+        postgres-password
+        demo-postgres-password
+        miniflux-postgres-password
+        cms-secrets.toml
+        miniflux.conf
+    ] {
+        let path = $managed | path join $file
+        let mode = file-mode $path
+        assert-equal ($mode | str trim) '600' 'Private files must be mode 600'
+    }
+    let mode = file-mode $managed
+    assert-equal ($mode | str trim) '700' 'Credential directory must be mode 700'
+    let names = [postgres-password demo-postgres-password miniflux-postgres-password]
+    let passwords = $names | each {|name| open --raw ($managed | path join $name) }
+    assert-equal ($passwords | uniq | length) 3 'Generate independent passwords'
+    for value in $passwords {
+        assert-equal ($value =~ '^[0-9a-f]{64}$') true 'Generate 256-bit passwords'
+        assert-equal ($result.stdout | str contains $value) false 'Do not print passwords'
+    }
+    let rendered = open --raw ($managed | path join cms-secrets.toml) | from toml
+    assert-equal $rendered.database.password $passwords.0 'CMS password must match PostgreSQL'
+    assert-equal $rendered.demo.database.password $passwords.1 'Demo password must match PostgreSQL'
+    let feed = open --raw ($managed | path join miniflux.conf)
+    assert-contains $feed $'miniflux:($passwords.2)@' 'Miniflux password must match PostgreSQL'
+    let units = $fixture.user_config | path join containers systemd
+    assert-contains (open --raw ($units | path join cms.container)) $'Volume=($managed)/cms-secrets.toml:' 'Mount rendered CMS secrets'
+    assert-contains (open --raw ($units | path join miniflux.container)) $'Volume=($managed)/miniflux.conf:' 'Mount rendered Miniflux config'
+    assert-equal (run-installer $fixture).exit_code 0 'Reinstallation should succeed'
+    assert-equal ($names | each {|name| open --raw ($managed | path join $name) }) $passwords 'Reinstall must preserve passwords'
+    assert-equal ([$secrets $miniflux] | each {|file| open --raw $file }) $inputs 'Do not modify templates'
+}
+
+def test-password-template-escaping [base: path] {
+    let fixture = setup-case $base
+    let secrets = $fixture.repo | path join config cms-api secrets.toml
+    let value = 'quote"backslash\percent%plus+λ'
+    open --raw $secrets
+    | from toml
+    | upsert database.password '{{main_database_password}}'
+    | to toml
+    | save --force $secrets
+    $value | save --force --raw ($fixture.repo | path join config cms-postgres postgres-password)
+    let result = run-installer $fixture
+    assert-equal $result.exit_code 0 $result.stderr
+    let rendered = open --raw ($fixture.user_config | path join podman-stack credentials cms-secrets.toml) | from toml
+    assert-equal $rendered.database.password $value 'Escape existing passwords correctly in TOML'
+}
+
+def test-adopt-passwords [base: path] {
+    let fixture = setup-case $base
+    for file in [
+        cms-postgres/postgres-password
+        cms-postgres/demo-postgres-password
+        miniflux/postgres-password
+    ] {
+        rm ($fixture.repo | path join config $file)
+    }
+    let result = run-installer $fixture
+    assert-equal $result.exit_code 0 $result.stderr
+    let managed = $fixture.user_config | path join podman-stack credentials
+    for name in [postgres-password demo-postgres-password miniflux-postgres-password] {
+        assert-equal (open --raw ($managed | path join $name)) 'test-value' 'Adopt existing application passwords'
+    }
+}
+
 export def main [] {
     let cases = [
         {|base| test-direct-checkout-paths $base }
@@ -334,6 +429,9 @@ export def main [] {
         {|base| test-invalid-password $base }
         {|base| test-shadowing-static-unit $base }
         {|base| test-secret-parse-error-is-private $base }
+        {|base| test-generated-passwords $base }
+        {|base| test-adopt-passwords $base }
+        {|base| test-password-template-escaping $base }
         {|base| test-miniflux-configuration $base }
         {|base| test-invalid-miniflux-configuration $base }
     ]

@@ -5,9 +5,9 @@ use _lib.nu [
     source-path
     read-setting
     read-toml
-    validate-password
     check-command
 ]
+use _credentials.nu [prepare-password internal-value toml-string-content]
 
 const UNIT_PLACEHOLDER = '@([A-Z_]+)@'
 
@@ -77,23 +77,47 @@ def main [
 
     read-toml $api | ignore
     read-toml $web | ignore
-    let credentials = read-toml $secrets
-    validate-password $postgres ($credentials.database?.password? | default null)
-    validate-password $demo ($credentials.demo?.database?.password? | default null)
-    let miniflux_settings = read-setting $miniflux
+    let managed = source-path ($user_config | path join podman-stack credentials)
+    let credentials = try {
+        let parsed = open --raw $secrets | from toml
+        $parsed
+    } catch { null }
+    if $credentials == null { error make {msg: $"Invalid TOML in ($secrets)"} }
+    let main_password = prepare-password $postgres ($managed | path join postgres-password) (
+        internal-value ($credentials.database?.password? | default null) 'main_database_password'
+    ) --explicit=($postgres_password != null)
+    let demo_password = prepare-password $demo ($managed | path join demo-postgres-password) (
+        internal-value ($credentials.demo?.database?.password? | default null) 'demo_database_password'
+    ) --explicit=($demo_postgres_password != null)
+    let raw_miniflux = open --raw $miniflux
     let database_password = try {
-        $miniflux_settings
-        | lines
-        | parse --regex '^DATABASE_URL=(.*)$'
-        | get capture0
-        | last
-        | url parse
-        | get password
-        | url decode
+        let url = $raw_miniflux | lines | parse --regex '^DATABASE_URL=(.*)$' | get capture0 | last
+        if ($url | str contains '{{miniflux_database_password_urlencoded}}') { null } else {
+            $url | url parse | get password | url decode
+        }
     } catch {
         error make {msg: $"Invalid or missing DATABASE_URL in ($miniflux)"}
     }
-    validate-password $miniflux_password $database_password
+    let feed_password = prepare-password $miniflux_password ($managed | path join miniflux-postgres-password) $database_password --explicit=($miniflux_postgres_password != null)
+    let secret_replacements = {
+        main_database_password: (toml-string-content $main_password.value)
+        demo_database_password: (toml-string-content $demo_password.value)
+    }
+    read-toml $secrets --replacements $secret_replacements | ignore
+    let rendered_secrets = read-setting $secrets --replacements $secret_replacements
+    let rendered_miniflux = read-setting $miniflux --replacements {
+        miniflux_database_password_urlencoded: ($feed_password.value | url encode --all)
+    }
+    let secrets_path = if $rendered_secrets == (open --raw $secrets) {
+        $secrets
+    } else {
+        $managed | path join cms-secrets.toml
+    }
+    let miniflux_path = if $rendered_miniflux == $raw_miniflux {
+        $miniflux
+    } else {
+        $managed | path join miniflux.conf
+    }
     check-static-services $user_config
     for name in [
         config/caddy/Caddyfile
@@ -114,13 +138,13 @@ def main [
     let replacements = {
         REPO_ROOT: $root
         API_CONFIG: $api
-        API_SECRETS: $secrets
+        API_SECRETS: $secrets_path
         WEB_CONFIG_DIR: ($web | path dirname)
         WEB_CONFIG_FILE: ($web | path basename)
-        POSTGRES_PASSWORD: $postgres
-        DEMO_POSTGRES_PASSWORD: $demo
-        MINIFLUX_CONFIG: $miniflux
-        MINIFLUX_POSTGRES_PASSWORD: $miniflux_password
+        POSTGRES_PASSWORD: $main_password.path
+        DEMO_POSTGRES_PASSWORD: $demo_password.path
+        MINIFLUX_CONFIG: $miniflux_path
+        MINIFLUX_POSTGRES_PASSWORD: $feed_password.path
     }
     | items {|key, value| {key: $key, value: ($value | str replace --all '%' '%%')} }
     | transpose --header-row --as-record
@@ -129,6 +153,11 @@ def main [
         | str replace --all --regex $UNIT_PLACEHOLDER {|name| $replacements | get $name }
         {name: ($source | path basename), content: $content}
     }
+    for credential in [$main_password $demo_password $feed_password] {
+        if $credential.write { install-unit $credential.path $credential.value }
+    }
+    if $secrets_path != $secrets { install-unit $secrets_path $rendered_secrets }
+    if $miniflux_path != $miniflux { install-unit $miniflux_path $rendered_miniflux }
     let sockets = $env.HOME | path join .local share podman-stack caddy sockets
     ^mkdir -p -m 750 $sockets
     check-command $env.LAST_EXIT_CODE 'Cannot create socket directory'
