@@ -1,0 +1,13 @@
+{
+	admin off
+	auto_https off
+}
+
+http:// {
+	bind "unix//sockets/cms.sock|0660"
+	reverse_proxy 127.0.0.1:3000 {
+		flush_interval -1
+	}
+}
+
+import cms-web.Caddyfile

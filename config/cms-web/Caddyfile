@@ -1,0 +1,5 @@
+http://:3001 {
+	bind 127.0.0.1 "unix//sockets/cms-web.sock|0660"
+	root * /srv/cms-web
+	file_server
+}

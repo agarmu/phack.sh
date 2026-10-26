@@ -1,0 +1,7 @@
+[api]
+baseUrl = "{{public_api_url}}"
+
+[auth]
+kind = "oidc"
+issuer = "{{oauth_issuer_url}}"
+clientId = "{{oauth_client_id}}"

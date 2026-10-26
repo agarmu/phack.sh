@@ -1,0 +1,14 @@
+*
+!config.toml
+!package.json
+!bun.lock
+!tsconfig.json
+!apps/
+!apps/api/
+apps/api/**
+!apps/api/package.json
+!apps/web/
+!apps/web/**
+apps/web/node_modules/
+apps/web/.astro/
+apps/web/dist/

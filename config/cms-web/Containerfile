@@ -1,0 +1,15 @@
+FROM docker.io/oven/bun:1.4.2 AS build
+WORKDIR /app
+
+COPY package.json bun.lock tsconfig.json ./
+COPY apps/api/package.json ./apps/api/package.json
+COPY apps/web/package.json ./apps/web/package.json
+RUN bun install --frozen-lockfile
+
+COPY apps/web ./apps/web
+ARG CMS_WEB_CONFIG_FILE=config.toml
+COPY --from=cms-web-config ["/${CMS_WEB_CONFIG_FILE}", "./apps/web/config.toml"]
+RUN bun run build:web
+
+FROM scratch
+COPY --from=build /app/apps/web/dist /
