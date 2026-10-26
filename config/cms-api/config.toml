@@ -1,0 +1,51 @@
+# ./scripts/install.nu asks for your URLs, OAuth settings, and telemetry destinations.
+[serve]
+baseUrl = "{{public_api_url}}"
+port = 3000
+bindLocal = false
+
+[auth]
+kind = "rfc-9068"
+algorithm = "ES256"
+issuer = "{{oauth_issuer_url}}"
+jwksUrl = "{{oauth_jwks_url}}"
+allowedSubjects = ["{{oauth_subject}}"]
+
+[database]
+url = "postgresql://cms@127.0.0.1:5432/cms"
+
+[demo.database]
+url = "postgresql://cms_demo@127.0.0.1:5432/cms_demo"
+
+# Demo assets are public and must use a separate store from the main library.
+[demo.storage]
+backend = "local"
+directory = "/data/demo-blobs"
+
+[http]
+allowedOrigins = ["{{website_origin}}"]
+
+[storage]
+backend = "s3"
+endpoint = "{{s3_bucket_endpoint}}"
+# For local storage, use backend = "local" and directory = "/data/blobs".
+
+[mcp]
+enabled = true
+
+[telemetry]
+enabled = true
+serviceName = "photos-cms"
+
+# Full OTLP/HTTP signal URLs; authentication headers belong in secrets.toml.
+[telemetry.traces]
+enabled = true
+endpoint = "{{otlp_traces_endpoint}}"
+
+[telemetry.metrics]
+enabled = true
+endpoint = "{{otlp_metrics_endpoint}}"
+
+[telemetry.logs]
+enabled = true
+endpoint = "{{otlp_logs_endpoint}}"
