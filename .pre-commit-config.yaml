@@ -1,0 +1,49 @@
+repos:
+  - repo: local
+    hooks:
+      - id: pgformatter
+        name: pgFormatter
+        language: system
+        entry: pg_format
+        files: '\.sql$'
+        args: [--inplace, --no-rcfile, --wrap-limit, "80", --wrap-comment]
+
+      - id: shfmt
+        name: shfmt
+        language: system
+        entry: shfmt
+        types: [shell]
+        args: [--write, --indent, "2", --case-indent]
+
+      - id: mdformat
+        name: mdformat
+        language: system
+        entry: mdformat
+        types: [markdown]
+        args: [--wrap, "80"]
+
+      - id: yamlfmt
+        name: yamlfmt
+        language: system
+        entry: yamlfmt
+        types: [yaml]
+        args: [-conf, .yamlfmt.yaml]
+
+      - id: taplo
+        name: Taplo
+        language: system
+        entry: taplo format
+        types: [toml]
+        args: [--option, column_width=80]
+
+      - id: nufmt
+        name: nufmt
+        language: system
+        entry: nufmt
+        files: '\.nu$'
+
+      - id: nixfmt
+        name: nixfmt
+        language: system
+        entry: nixfmt
+        files: '\.nix$'
