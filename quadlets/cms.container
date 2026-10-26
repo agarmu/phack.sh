@@ -1,0 +1,24 @@
+[Unit]
+Description=CMS API
+Wants=cms-postgres.service
+After=cms-postgres.service
+
+[Container]
+Image=ghcr.io/agarmu/cms-api:main
+AutoUpdate=registry
+ContainerName=cms
+Pod=podman-stack.pod
+User=1000
+Group=1000
+WorkingDir=/app
+Volume=@API_CONFIG@:/app/config.toml:ro,Z
+Volume=@API_SECRETS@:/app/secrets.toml:ro,Z
+Volume=cms-data.volume:/data:U
+NoNewPrivileges=true
+LogDriver=journald
+
+[Service]
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=900
+TimeoutStopSec=90

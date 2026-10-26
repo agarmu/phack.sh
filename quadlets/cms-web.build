@@ -1,0 +1,13 @@
+[Unit]
+Description=Build CMS frontend with local configuration
+
+[Build]
+ImageTag=localhost/cms-web:main
+File=@REPO_ROOT@/config/cms-web/Containerfile
+SetWorkingDirectory=https://github.com/agarmu/cms.git#main
+IgnoreFile=@REPO_ROOT@/config/cms-web/.containerignore
+PodmanArgs="--build-context=cms-web-config=@WEB_CONFIG_DIR@"
+BuildArg=CMS_WEB_CONFIG_FILE=@WEB_CONFIG_FILE@
+
+[Service]
+TimeoutStartSec=1800

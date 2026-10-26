@@ -1,0 +1,15 @@
+[Unit]
+Description=CMS API, PostgreSQL, and Caddy frontend
+
+[Pod]
+PodName=podman-stack
+# Private bind mounts remain owned by the host user inside the pod.
+UserNS=keep-id:uid=1000,gid=1000
+StopTimeout=60
+
+[Service]
+TimeoutStartSec=900
+TimeoutStopSec=90
+
+[Install]
+WantedBy=default.target

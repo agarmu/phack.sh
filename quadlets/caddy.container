@@ -1,0 +1,26 @@
+[Unit]
+Description=CMS frontend and API proxy
+Requires=cms-web-build.service
+After=cms-web-build.service
+
+[Container]
+Image=docker.io/library/caddy:2.11.4-alpine
+ContainerName=caddy
+Pod=podman-stack.pod
+# Keep the Unix sockets owned by the host user.
+User=1000
+Group=1000
+Environment=XDG_CONFIG_HOME=/tmp/config
+Environment=XDG_DATA_HOME=/tmp/data
+Volume=@REPO_ROOT@/config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro,Z
+Volume=@REPO_ROOT@/config/cms-web/Caddyfile:/etc/caddy/cms-web.Caddyfile:ro,Z
+Mount=type=image,source=localhost/cms-web:main,destination=/srv/cms-web,rw=false
+Volume=%h/.local/share/podman-stack/caddy/sockets:/sockets:z
+NoNewPrivileges=true
+LogDriver=journald
+
+[Service]
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=900
+TimeoutStopSec=90
