@@ -122,6 +122,7 @@ def main [
         config/cms-web/Containerfile
         config/cms-web/.containerignore
         postgres/init.sql
+        postgres/cms.sql
         postgres/healthcheck.sh
     ] {
         if not ($ROOT | path join $name | path exists) {

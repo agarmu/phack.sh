@@ -80,6 +80,7 @@ def test-direct-checkout-paths [base: path] {
         config/cms-web/Caddyfile
         config/caddy/Caddyfile
         postgres/init.sql
+        postgres/cms.sql
         postgres/healthcheck.sh
     ]
     let before = $sources | each {|name| open --raw ($fixture.repo | path join $name) | hash sha256 }
@@ -420,6 +421,8 @@ def test-postgres [] {
                 $'password_dir=($base)'
                 '-f'
                 ($ROOT | path join 'postgres/init.sql')
+                '-f'
+                ($ROOT | path join 'postgres/cms.sql')
             ) | ignore
         }
         do $initialize
